@@ -1,0 +1,61 @@
+name: Sync All Hugging Face Spaces
+on:
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout GitHub Repo
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Configure Git User
+        run: |
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git config --global user.name "github-actions[bot]"
+
+      - name: Fetch and Download All Hugging Face Spaces
+        env:
+          HF_TOKEN: hf_
+        run: |
+          HF_USER="------------"
+          echo "🔍 Searching for all spaces owned by $HF_USER..."
+          
+          # Ask Hugging Face API for a list of all your spaces
+          if [ -z "$HF_TOKEN" ]; then
+            SPACES_JSON=$(curl -s "https://huggingface.co/api/spaces?author=$HF_USER")
+          else
+            SPACES_JSON=$(curl -s -H "Authorization: Bearer $HF_TOKEN" "https://huggingface.co/api/spaces?author=$HF_USER")
+          fi
+          
+          SPACES=$(echo "$SPACES_JSON" | jq -r '.[].id' | sed "s|^$HF_USER/||")
+          echo "Found the following spaces:"
+          echo "$SPACES"
+          
+          for SPACE in $SPACES; do
+            echo "📥 Downloading $SPACE..."
+            rm -rf "$SPACE"
+            
+            if [ -z "$HF_TOKEN" ]; then
+              git clone "https://huggingface.co/spaces/$HF_USER/$SPACE" "$SPACE"
+            else
+              git clone "https://oauth2:$HF_TOKEN@huggingface.co/spaces/$HF_USER/$SPACE" "$SPACE"
+            fi
+            
+            if [ -d "$SPACE" ]; then
+              rm -rf "$SPACE/.git"
+            else
+              echo "⚠️ Failed to download $SPACE"
+            fi
+          done
+
+      - name: Setup Git LFS
+        run: |
+          git lfs track "*.safetensors" "*.bin" "*.pt" "*.h5" "*.ckpt" "*.onnx" "*.gguf" "*.whl" "*.tar.gz"
+          git add .gitattributes
+
+      - name: Commit and Push
+        run: |
+          git add
